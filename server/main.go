@@ -31,6 +31,7 @@ var broadcast = make(chan Message)
 var mutex = &sync.Mutex{} 
 
 func main(){
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	http.HandleFunc("/ws", handleConnections)
 
 	go handleMessages()
@@ -44,9 +45,10 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	//Upgrade GET request to a websocket
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("Upgrade error:", err)
+		log.Println("[ERROR] Failed to upgrade HTTP to WebSocket:", err)
 		return
-	}
+  }
+  log.Println("[INFO] WebSocket connection established")
 
 	defer ws.Close()
 
@@ -67,7 +69,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			mutex.Unlock()
 			break
 		}
-
+		log.Println("[INFO] Message recieved from the client")
 		//sending the recieved message on broadcast channel but first converting it into string
 		broadcast <- Message{
 			Sender: ws,
@@ -93,6 +95,7 @@ func handleMessages() {
 					client.Close()
 					delete(clients, client)
 				}
+				log.Println("[INFO] Message sent to all clients")
 			}
 		}
 		mutex.Unlock()
