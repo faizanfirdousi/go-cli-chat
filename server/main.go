@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,19 +10,19 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-
 //Upgrade HTTP to websocket
 
- var upgrader = websocket.Upgrader{
-  //To satisfy the Same-Origin Policy (SOP)
+var upgrader = websocket.Upgrader{
+	//To satisfy the Same-Origin Policy (SOP)
 	//checks if the ws is established from the same origin (same protocol,host,port) 
 	//not for production tho
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 type Message struct {
-	Sender *websocket.Conn
-	Content string
+	Sender string `json:"sender"`
+	ClientConn *websocket.Conn `json:"clientConn"`
+	Content string `json:"content"`
 }
 
 //thread-safe list of clients
@@ -47,8 +48,8 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Println("[ERROR] Failed to upgrade HTTP to WebSocket:", err)
 		return
-  }
-  log.Println("[INFO] WebSocket connection established")
+	}
+	log.Println("[INFO] WebSocket connection established")
 
 	defer ws.Close()
 
@@ -60,21 +61,23 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	//listen for messages from client
 
 	for {
-		// _ is message type, msg is actual message but in []byte
-		_, msg, err := ws.ReadMessage()
-
+		_, msgBytes, err := ws.ReadMessage()
 		if err != nil {
+			log.Println("[INFO] Client disconnected")
 			mutex.Lock()
-			delete(clients,ws)
+			delete(clients, ws)
 			mutex.Unlock()
 			break
 		}
-		log.Println("[INFO] Message recieved from the client")
-		//sending the recieved message on broadcast channel but first converting it into string
-		broadcast <- Message{
-			Sender: ws,
-			Content: string(msg),
+
+		var msg Message
+		err = json.Unmarshal(msgBytes, &msg)
+		if err != nil {
+			log.Println("[ERROR] JSON unmarshal error: ",err)
+			continue
 		}
+
+		broadcast <- msg 
 	}
 }
 
@@ -84,12 +87,13 @@ func handleMessages() {
 		// wait for message from any client
 
 		msg := <-broadcast //Blocks until message is received from any client
+		formatted := fmt.Sprintf("[%s]: %s",msg.Sender, msg.Content)
 
 		//send to all connnected clients
 		mutex.Lock()
 		for client := range clients {
-			if client != msg.Sender {
-				err := client.WriteMessage(websocket.TextMessage, []byte(msg.Content))
+			if client != msg.ClientConn{
+				err := client.WriteMessage(websocket.TextMessage, []byte(formatted))
 				if err != nil {
 					log.Printf("Write error: %v",err)
 					client.Close()
@@ -97,6 +101,7 @@ func handleMessages() {
 				}
 				log.Println("[INFO] Message sent to all clients")
 			}
+
 		}
 		mutex.Unlock()
 	}
