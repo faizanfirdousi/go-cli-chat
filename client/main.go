@@ -14,7 +14,6 @@ import (
 
 type Message struct{
 	Sender string `json:"sender"`
-	ClientConn *websocket.Conn `json:"clientConn"`
 	Content string `json:"content"`
 }
 
@@ -69,7 +68,6 @@ func main(){
 
 		message := Message{
 			Sender: username,
-			ClientConn: conn,
 			Content: text,
 		}
 

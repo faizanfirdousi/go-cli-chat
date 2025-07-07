@@ -19,16 +19,21 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-type Message struct {
+type ClientMessage struct {
 	Sender string `json:"sender"`
-	ClientConn *websocket.Conn `json:"clientConn"`
 	Content string `json:"content"`
+}
+
+type ServerMessage struct {
+	SenderConn *websocket.Conn
+	SenderName string
+	Content string
 }
 
 //thread-safe list of clients
 
 var clients = make(map[*websocket.Conn]bool)
-var broadcast = make(chan Message)
+var broadcast = make(chan ServerMessage)
 var mutex = &sync.Mutex{} 
 
 func main(){
@@ -70,14 +75,18 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		var msg Message
-		err = json.Unmarshal(msgBytes, &msg)
+		var clientMsg ClientMessage
+		err = json.Unmarshal(msgBytes, &clientMsg)
 		if err != nil {
 			log.Println("[ERROR] JSON unmarshal error: ",err)
 			continue
 		}
 
-		broadcast <- msg 
+		broadcast <- ServerMessage{
+			SenderConn: ws,
+			SenderName: clientMsg.Sender,
+			Content: clientMsg.Content,
+		}
 	}
 }
 
@@ -87,12 +96,12 @@ func handleMessages() {
 		// wait for message from any client
 
 		msg := <-broadcast //Blocks until message is received from any client
-		formatted := fmt.Sprintf("[%s]: %s",msg.Sender, msg.Content)
+		formatted := fmt.Sprintf("[%s]: %s",msg.SenderName, msg.Content)
 
 		//send to all connnected clients
 		mutex.Lock()
 		for client := range clients {
-			if client != msg.ClientConn{
+			if client != msg.SenderConn {
 				err := client.WriteMessage(websocket.TextMessage, []byte(formatted))
 				if err != nil {
 					log.Printf("Write error: %v",err)
